@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Instant Fact Checker — LPH Meter</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0a0c10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icon-256.png">
+<link rel="icon" type="image/png" href="icon-256.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0c10;
+    --panel:#14171d;
+    --chrome-hi:#f4f6f8;
+    --chrome-mid:#aab2bd;
+    --chrome-lo:#5a626d;
+    --chrome-shadow:#222;
+    --red:#e23b2e;
+    --amber:#f0a830;
+    --green:#3ad07a;
+    --ink:#0a0c10;
+    --dial:#101216;
+    --text:#dfe4ea;
+    --muted:#7c828c;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{
+    background:
+      radial-gradient(circle at 50% 0%, #1a1f28 0%, #0a0c10 60%),
+      var(--bg);
+    color:var(--text);
+    font-family:'Oswald',sans-serif;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding:28px 16px 60px;
+    overflow-x:hidden;
+  }
+  body::before{
+    content:"";
+    position:fixed;inset:0;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events:none;z-index:0;
+  }
+  .wrap{width:100%;max-width:760px;position:relative;z-index:1;}
+  header{text-align:center;margin-bottom:18px;}
+  .kicker{
+    font-size:13px;letter-spacing:.45em;text-transform:uppercase;
+    color:var(--muted);font-weight:500;
+  }
+  h1{
+    font-weight:700;font-size:clamp(30px,7vw,52px);
+    letter-spacing:.02em;line-height:1;margin-top:4px;
+    background:linear-gradient(180deg,var(--chrome-hi),var(--chrome-mid) 45%,var(--chrome-lo) 55%,#cdd3da);
+    -webkit-background-clip:text;background-clip:text;
+    -webkit-text-fill-color:transparent;
+    filter:drop-shadow(0 2px 1px rgba(0,0,0,.6));
+  }
+
+  /* ===== GAUGE ===== */
+  .gauge-stage{display:flex;justify-content:center;margin:6px 0 10px;}
+  .gauge{width:min(440px,92vw);height:auto;filter:drop-shadow(0 18px 30px rgba(0,0,0,.6));}
+  .readout{text-align:center;margin-top:-6px;}
+  .lph-num{
+    font-family:'Share Tech Mono',monospace;
+    font-size:clamp(40px,11vw,72px);
+    color:var(--red);
+    text-shadow:0 0 18px rgba(226,59,46,.55);
+    letter-spacing:.04em;line-height:1;
+    transition:color .3s;
+  }
+  .lph-label{font-size:14px;letter-spacing:.4em;color:var(--muted);text-transform:uppercase;margin-top:2px;}
+
+  /* ===== INPUT TABS ===== */
+  .tabs{display:flex;gap:6px;justify-content:center;margin:22px 0 14px;flex-wrap:wrap;}
+  .tab{
+    font-family:'Oswald';font-weight:500;font-size:14px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--muted);
+    background:var(--panel);border:1px solid #232830;
+    padding:11px 18px;border-radius:9px;cursor:pointer;
+    transition:.2s;display:flex;align-items:center;gap:8px;
+  }
+  .tab:hover{color:var(--text);border-color:#3a414c;}
+  .tab.active{
+    color:var(--ink);
+    background:linear-gradient(180deg,var(--chrome-hi),var(--chrome-mid));
+    border-color:var(--chrome-hi);
+  }
+  .panel{
+    background:var(--panel);border:1px solid #232830;border-radius:14px;
+    padding:20px;margin-bottom:18px;
+  }
+  .pane{display:none;}
+  .pane.active{display:block;}
+
+  .btn{
+    font-family:'Oswald';font-weight:600;font-size:15px;letter-spacing:.1em;
+    text-transform:uppercase;cursor:pointer;border:none;border-radius:10px;
+    padding:14px 22px;color:var(--ink);
+    background:linear-gradient(180deg,var(--chrome-hi),var(--chrome-mid) 60%,var(--chrome-lo));
+    box-shadow:0 2px 0 #2a2f37, inset 0 1px 0 rgba(255,255,255,.6);
+    transition:transform .1s, filter .2s;
+  }
+  .btn:hover{filter:brightness(1.06);}
+  .btn:active{transform:translateY(1px);}
+  .btn.live{background:linear-gradient(180deg,#ff6a5e,var(--red) 60%,#9c241a);color:#fff;text-shadow:0 1px 1px rgba(0,0,0,.4);}
+  .btn.stop{background:linear-gradient(180deg,#3a414c,#23282f);color:var(--text);box-shadow:none;}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+  textarea{
+    width:100%;min-height:120px;resize:vertical;
+    background:var(--dial);border:1px solid #2a2f37;border-radius:10px;
+    color:var(--text);font-family:'Share Tech Mono';font-size:14px;
+    padding:14px;line-height:1.5;
+  }
+  textarea:focus{outline:none;border-color:var(--chrome-mid);}
+  .drop{
+    border:2px dashed #353c46;border-radius:12px;padding:30px;text-align:center;
+    color:var(--muted);cursor:pointer;transition:.2s;
+  }
+  .drop:hover,.drop.over{border-color:var(--chrome-mid);color:var(--text);background:rgba(255,255,255,.02);}
+  .hint{font-size:13px;color:var(--muted);margin-top:8px;line-height:1.5;}
+  .mic-status{
+    font-family:'Share Tech Mono';font-size:13px;color:var(--muted);
+    margin-top:12px;min-height:18px;
+  }
+  .mic-status.on{color:var(--red);}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--red);margin-right:7px;vertical-align:middle;}
+  .mic-status.on .dot{animation:pulse 1s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.25;}}
+
+  /* ===== TRANSCRIPT / VERDICTS ===== */
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;}
+  .stat{background:var(--panel);border:1px solid #232830;border-radius:12px;padding:14px;text-align:center;}
+  .stat .v{font-family:'Share Tech Mono';font-size:26px;}
+  .stat .v.lies{color:var(--red);}
+  .stat .v.checked{color:var(--text);}
+  .stat .v.true{color:var(--green);}
+  .stat .k{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);margin-top:4px;}
+
+  .feed{max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;}
+  .claim{
+    background:var(--dial);border-left:4px solid var(--chrome-lo);
+    border-radius:8px;padding:11px 13px;font-size:14px;line-height:1.45;
+    animation:slidein .3s ease;
+  }
+  @keyframes slidein{from{opacity:0;transform:translateX(-8px);}to{opacity:1;transform:none;}}
+  .claim.checking{border-left-color:var(--amber);}
+  .claim.false{border-left-color:var(--red);background:rgba(226,59,46,.08);}
+  .claim.true{border-left-color:var(--green);}
+  .claim.unverifiable{border-left-color:var(--chrome-lo);opacity:.7;}
+  .claim .tag{
+    display:inline-block;font-family:'Share Tech Mono';font-size:10px;
+    letter-spacing:.15em;text-transform:uppercase;padding:2px 7px;border-radius:4px;
+    margin-bottom:5px;
+  }
+  .tag.checking{background:rgba(240,168,48,.2);color:var(--amber);}
+  .tag.false{background:rgba(226,59,46,.2);color:#ff7b70;}
+  .tag.true{background:rgba(58,208,122,.2);color:var(--green);}
+  .tag.unverifiable{background:rgba(122,130,140,.2);color:var(--muted);}
+  .claim .note{font-size:12px;color:var(--muted);margin-top:5px;font-style:italic;}
+  .empty{text-align:center;color:var(--muted);padding:30px;font-size:14px;}
+  footer{margin-top:24px;text-align:center;font-size:12px;color:var(--muted);line-height:1.6;max-width:560px;}
+  .err{color:#ff7b70;font-size:13px;margin-top:8px;font-family:'Share Tech Mono';}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="kicker">Instant Fact Checker</div>
+    <h1>L · P · H&nbsp;METER</h1>
+  </header>
+
+  <div class="gauge-stage">
+    <svg class="gauge" viewBox="0 0 400 260" id="gaugeSvg"></svg>
+  </div>
+  <div class="readout">
+    <div class="lph-num" id="lphNum">0</div>
+    <div class="lph-label">Lies Per Hour</div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="v lies" id="sLies">0</div><div class="k">Lies</div></div>
+    <div class="stat"><div class="v checked" id="sChecked">0</div><div class="k">Checked</div></div>
+    <div class="stat"><div class="v true" id="sTrue">0</div><div class="k">Verified True</div></div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="mic">🎙 Live Mic</button>
+    <button class="tab" data-tab="audio">📁 Audio File</button>
+    <button class="tab" data-tab="text">📝 Text</button>
+  </div>
+
+  <div class="panel">
+    <!-- MIC -->
+    <div class="pane active" id="pane-mic">
+      <div class="row">
+        <button class="btn live" id="micBtn">Start Listening</button>
+        <button class="btn stop" id="micStop" disabled>Stop</button>
+      </div>
+      <div class="mic-status" id="micStatus"><span class="dot" style="display:none"></span>Microphone idle.</div>
+      <div class="hint">Uses your browser's speech recognition. Speak naturally — complete sentences are sent to Claude for fact-checking as you go. (Best in Chrome/Edge.)</div>
+    </div>
+    <!-- AUDIO -->
+    <div class="pane" id="pane-audio">
+      <div class="drop" id="audioDrop">
+        <strong>Drop an audio file</strong> or click to browse<br>
+        <span class="hint">Plays the file and transcribes live via speech recognition.</span>
+      </div>
+      <input type="file" id="audioInput" accept="audio/*" hidden>
+      <audio id="audioPlayer" controls style="width:100%;margin-top:12px;display:none;"></audio>
+      <div class="hint">Note: browsers can only transcribe audio that's played aloud through speech recognition, so keep your volume up. For best accuracy use the text tab with a transcript.</div>
+    </div>
+    <!-- TEXT -->
+    <div class="pane" id="pane-text">
+      <textarea id="textInput" placeholder="Paste a transcript or type statements here. Each sentence will be fact-checked…"></textarea>
+      <div class="row" style="margin-top:12px;">
+        <button class="btn" id="textCheck">Fact-Check Text</button>
+        <button class="btn stop" id="textStream">Stream Word-by-Word</button>
+        <label class="hint" style="cursor:pointer;">
+          <input type="file" id="textFile" accept=".txt,.md,.csv" hidden>
+          <span style="text-decoration:underline;">…or upload a .txt file</span>
+        </label>
+      </div>
+    </div>
+    <div class="err" id="errBox"></div>
+  </div>
+
+  <div class="panel">
+    <div class="feed" id="feed">
+      <div class="empty" id="emptyMsg">Verdicts will appear here as statements are checked.</div>
+    </div>
+  </div>
+
+  <footer>
+    LPH = (false statements detected in the last 60&nbsp;seconds) × 60, smoothed onto the needle.
+    Fact-checking is performed by Claude and reflects its best judgment — verify anything important yourself.
+  </footer>
+</div>
+
+<script>
+/* ============ GAUGE RENDERING ============ */
+const MAX_LPH = 240;
+const svg = document.getElementById('gaugeSvg');
+const NS = 'http://www.w3.org/2000/svg';
+const CX=200, CY=200, R=150;
+const START=-225, END=45; // degrees (sweep 270°)
+
+function polar(cx,cy,r,deg){const a=deg*Math.PI/180;return [cx+r*Math.cos(a), cy+r*Math.sin(a)];}
+function arc(cx,cy,r,d0,d1){
+  const [x0,y0]=polar(cx,cy,r,d0),[x1,y1]=polar(cx,cy,r,d1);
+  const large=(d1-d0)>180?1:0;
+  return `M ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1}`;
+}
+function val2deg(v){return START+(Math.min(v,MAX_LPH)/MAX_LPH)*(END-START);}
+
+function buildGauge(){
+  // defs: chrome gradients
+  svg.innerHTML = `
+  <defs>
+    <radialGradient id="bezel" cx="50%" cy="40%" r="65%">
+      <stop offset="0%" stop-color="#f4f6f8"/>
+      <stop offset="45%" stop-color="#aab2bd"/>
+      <stop offset="62%" stop-color="#4a525c"/>
+      <stop offset="80%" stop-color="#cdd3da"/>
+      <stop offset="100%" stop-color="#5a626d"/>
+    </radialGradient>
+    <radialGradient id="face" cx="50%" cy="38%" r="75%">
+      <stop offset="0%" stop-color="#1a1f27"/>
+      <stop offset="100%" stop-color="#080a0d"/>
+    </radialGradient>
+    <linearGradient id="needle" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ff6a5e"/>
+      <stop offset="100%" stop-color="#9c241a"/>
+    </linearGradient>
+    <radialGradient id="hub" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#f4f6f8"/>
+      <stop offset="60%" stop-color="#aab2bd"/>
+      <stop offset="100%" stop-color="#3a414c"/>
+    </radialGradient>
+  </defs>
+  <circle cx="${CX}" cy="${CY}" r="${R+18}" fill="url(#bezel)"/>
+  <circle cx="${CX}" cy="${CY}" r="${R+4}" fill="#23282f"/>
+  <circle cx="${CX}" cy="${CY}" r="${R}" fill="url(#face)"/>`;
+
+  // colored zone arcs
+  const zones=[
+    {a:0,b:80,c:'#3ad07a'},
+    {a:80,b:160,c:'#f0a830'},
+    {a:160,b:240,c:'#e23b2e'}
+  ];
+  zones.forEach(z=>{
+    const p=document.createElementNS(NS,'path');
+    p.setAttribute('d',arc(CX,CY,R-14,val2deg(z.a),val2deg(z.b)));
+    p.setAttribute('stroke',z.c);p.setAttribute('stroke-width','7');
+    p.setAttribute('fill','none');p.setAttribute('stroke-linecap','butt');
+    p.setAttribute('opacity','.9');
+    svg.appendChild(p);
+  });
+
+  // ticks + numbers
+  for(let v=0;v<=MAX_LPH;v+=20){
+    const major=v%40===0;
+    const d=val2deg(v);
+    const r1=R-22, r2=R-(major?40:32);
+    const [x1,y1]=polar(CX,CY,r1,d),[x2,y2]=polar(CX,CY,r2,d);
+    const t=document.createElementNS(NS,'line');
+    t.setAttribute('x1',x1);t.setAttribute('y1',y1);
+    t.setAttribute('x2',x2);t.setAttribute('y2',y2);
+    t.setAttribute('stroke','#cdd3da');t.setAttribute('stroke-width',major?2.5:1.2);
+    svg.appendChild(t);
+    if(major){
+      const [lx,ly]=polar(CX,CY,R-58,d);
+      const txt=document.createElementNS(NS,'text');
+      txt.setAttribute('x',lx);txt.setAttribute('y',ly+5);
+      txt.setAttribute('fill','#dfe4ea');txt.setAttribute('font-size','15');
+      txt.setAttribute('font-family',"'Share Tech Mono',monospace");
+      txt.setAttribute('text-anchor','middle');txt.textContent=v;
+      svg.appendChild(txt);
+    }
+  }
+
+  // label
+  const lab=document.createElementNS(NS,'text');
+  lab.setAttribute('x',CX);lab.setAttribute('y',CY-44);
+  lab.setAttribute('fill','#7c828c');lab.setAttribute('font-size','11');
+  lab.setAttribute('letter-spacing','3');
+  lab.setAttribute('font-family',"'Oswald',sans-serif");
+  lab.setAttribute('text-anchor','middle');lab.textContent='LIES / HOUR';
+  svg.appendChild(lab);
+
+  // needle group
+  const ng=document.createElementNS(NS,'g');
+  ng.setAttribute('id','needleGroup');
+  ng.setAttribute('transform',`rotate(${val2deg(0)} ${CX} ${CY})`);
+  ng.innerHTML=`
+    <polygon points="${CX-5},${CY} ${CX+5},${CY} ${CX+1.5},${CY-R+30} ${CX-1.5},${CY-R+30}" fill="url(#needle)"/>
+    <polygon points="${CX-4},${CY} ${CX+4},${CY} ${CX},${CY+34}" fill="#3a414c"/>`;
+  svg.appendChild(ng);
+  const hub=document.createElementNS(NS,'circle');
+  hub.setAttribute('cx',CX);hub.setAttribute('cy',CY);hub.setAttribute('r',16);
+  hub.setAttribute('fill','url(#hub)');hub.setAttribute('stroke','#23282f');hub.setAttribute('stroke-width','2');
+  svg.appendChild(hub);
+  const glass=document.createElementNS(NS,'ellipse');
+  glass.setAttribute('cx',CX);glass.setAttribute('cy',CY-50);
+  glass.setAttribute('rx',R-30);glass.setAttribute('ry',R-70);
+  glass.setAttribute('fill','rgba(255,255,255,.04)');
+  svg.appendChild(glass);
+}
+buildGauge();
+
+let needleGroup=document.getElementById('needleGroup');
+let displayedLPH=0, targetLPH=0;
+function animateNeedle(){
+  displayedLPH += (targetLPH-displayedLPH)*0.12;
+  if(Math.abs(targetLPH-displayedLPH)<0.1) displayedLPH=targetLPH;
+  needleGroup.setAttribute('transform',`rotate(${val2deg(displayedLPH)} ${CX} ${CY})`);
+  const num=document.getElementById('lphNum');
+  num.textContent=Math.round(displayedLPH);
+  num.style.color = displayedLPH>=160?'#e23b2e':displayedLPH>=80?'#f0a830':'#3ad07a';
+  num.style.textShadow = `0 0 18px ${displayedLPH>=160?'rgba(226,59,46,.55)':displayedLPH>=80?'rgba(240,168,48,.45)':'rgba(58,208,122,.4)'}`;
+  requestAnimationFrame(animateNeedle);
+}
+animateNeedle();
+
+/* ============ LPH BOOKKEEPING ============ */
+const lieTimestamps=[]; // ms timestamps of confirmed lies
+let totalLies=0, totalChecked=0, totalTrue=0;
+function recordLie(){lieTimestamps.push(Date.now());totalLies++;updateStats();}
+function updateStats(){
+  document.getElementById('sLies').textContent=totalLies;
+  document.getElementById('sChecked').textContent=totalChecked;
+  document.getElementById('sTrue').textContent=totalTrue;
+}
+function recomputeLPH(){
+  const cutoff=Date.now()-60000;
+  while(lieTimestamps.length && lieTimestamps[0]<cutoff) lieTimestamps.shift();
+  targetLPH = lieTimestamps.length*60;
+}
+setInterval(recomputeLPH,250);
+
+/* ============ FEED ============ */
+const feed=document.getElementById('feed');
+const emptyMsg=document.getElementById('emptyMsg');
+function addClaim(text){
+  if(emptyMsg) emptyMsg.remove();
+  const el=document.createElement('div');
+  el.className='claim checking';
+  el.innerHTML=`<span class="tag checking">Checking…</span><div>${escapeHtml(text)}</div>`;
+  feed.prepend(el);
+  return el;
+}
+function verdictClaim(el,verdict,note){
+  const map={false:'false',true:'true',unverifiable:'unverifiable'};
+  const labelMap={false:'False',true:'True',unverifiable:'Unverifiable'};
+  const c=map[verdict]||'unverifiable';
+  el.className='claim '+c;
+  el.querySelector('.tag').className='tag '+c;
+  el.querySelector('.tag').textContent=labelMap[verdict]||'Unverifiable';
+  if(note){
+    const n=document.createElement('div');n.className='note';n.textContent=note;
+    el.appendChild(n);
+  }
+}
+function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+/* ============ CLAUDE FACT-CHECK ============ */
+async function factCheck(statement){
+  const sys = `You are a rapid fact-checker. The user gives you ONE statement. Decide if it is a factual claim that is false, true, or unverifiable/opinion. Respond ONLY with minified JSON, no markdown: {"verdict":"false"|"true"|"unverifiable","note":"<=12 word reason"}. Treat opinions, predictions, jokes, and questions as "unverifiable". Only mark "false" for clear factual errors.`;
+  try{
+    const res=await fetch("https://api.anthropic.com/v1/messages",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        model:"claude-sonnet-4-20250514",
+        max_tokens:1000,
+        system:sys,
+        messages:[{role:"user",content:statement}]
+      })
+    });
+    const data=await res.json();
+    let txt=(data.content||[]).map(b=>b.text||"").join("").trim();
+    txt=txt.replace(/```json|```/g,"").trim();
+    const m=txt.match(/\{[\s\S]*\}/);
+    const obj=JSON.parse(m?m[0]:txt);
+    return {verdict:(obj.verdict||'unverifiable').toLowerCase(),note:obj.note||''};
+  }catch(e){
+    console.error(e);
+    return {verdict:'unverifiable',note:'check failed'};
+  }
+}
+
+// queue so we don't fire dozens of calls at once
+const queue=[]; let active=0; const MAX_CONCURRENT=3;
+function enqueue(statement){
+  const el=addClaim(statement);
+  queue.push({statement,el});
+  drain();
+}
+function drain(){
+  while(active<MAX_CONCURRENT && queue.length){
+    const {statement,el}=queue.shift();active++;
+    factCheck(statement).then(r=>{
+      totalChecked++;
+      if(r.verdict==='false'){recordLie();}
+      else if(r.verdict==='true'){totalTrue++;updateStats();}
+      else updateStats();
+      verdictClaim(el,r.verdict,r.note);
+    }).finally(()=>{active--;drain();});
+  }
+}
+
+/* ============ SENTENCE SEGMENTATION ============ */
+function splitSentences(text){
+  return text.replace(/\s+/g,' ').match(/[^.!?]+[.!?]+|\S[^.!?]*$/g)||[];
+}
+
+/* ============ TABS ============ */
+document.querySelectorAll('.tab').forEach(t=>{
+  t.onclick=()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.pane').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('pane-'+t.dataset.tab).classList.add('active');
+  };
+});
+const errBox=document.getElementById('errBox');
+function showErr(m){errBox.textContent=m;setTimeout(()=>errBox.textContent='',5000);}
+
+/* ============ LIVE MIC ============ */
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let recog=null, micOn=false;
+const micBtn=document.getElementById('micBtn'),micStop=document.getElementById('micStop');
+const micStatus=document.getElementById('micStatus');
+function startMic(){
+  if(!SR){showErr('Speech recognition not supported in this browser. Try Chrome or Edge.');return;}
+  recog=new SR();recog.continuous=true;recog.interimResults=true;recog.lang='en-US';
+  let buffer='';
+  recog.onresult=(e)=>{
+    let finalChunk='';
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      if(e.results[i].isFinal) finalChunk+=e.results[i][0].transcript+' ';
+    }
+    if(finalChunk){
+      buffer+=finalChunk;
+      const sents=splitSentences(buffer);
+      // keep last (possibly incomplete) chunk in buffer if no terminal punctuation
+      if(!/[.!?]\s*$/.test(buffer.trim())){
+        buffer=sents.pop()||'';
+      } else buffer='';
+      sents.forEach(s=>{if(s.trim().split(' ').length>=3)enqueue(s.trim());});
+    }
+  };
+  recog.onerror=(e)=>{if(e.error!=='no-speech')showErr('Mic error: '+e.error);};
+  recog.onend=()=>{if(micOn)recog.start();};
+  recog.start();micOn=true;
+  micBtn.disabled=true;micStop.disabled=false;
+  micStatus.classList.add('on');
+  micStatus.innerHTML='<span class="dot"></span>Listening…';
+}
+function stopMic(){micOn=false;if(recog)recog.stop();micBtn.disabled=false;micStop.disabled=true;micStatus.classList.remove('on');micStatus.innerHTML='Microphone idle.';}
+micBtn.onclick=startMic;micStop.onclick=stopMic;
+
+/* ============ AUDIO FILE ============ */
+const audioDrop=document.getElementById('audioDrop'),audioInput=document.getElementById('audioInput');
+const audioPlayer=document.getElementById('audioPlayer');
+audioDrop.onclick=()=>audioInput.click();
+['dragover','dragenter'].forEach(ev=>audioDrop.addEventListener(ev,e=>{e.preventDefault();audioDrop.classList.add('over');}));
+['dragleave','drop'].forEach(ev=>audioDrop.addEventListener(ev,e=>{e.preventDefault();audioDrop.classList.remove('over');}));
+audioDrop.addEventListener('drop',e=>{if(e.dataTransfer.files[0])loadAudio(e.dataTransfer.files[0]);});
+audioInput.onchange=e=>{if(e.target.files[0])loadAudio(e.target.files[0]);};
+function loadAudio(file){
+  audioPlayer.src=URL.createObjectURL(file);
+  audioPlayer.style.display='block';
+  if(!SR){showErr('Live transcription needs Chrome/Edge. Audio will still play.');audioPlayer.play();return;}
+  audioPlayer.onplay=()=>{if(!micOn){startMic();micStatus.innerHTML='<span class="dot"></span>Transcribing playback — keep volume up.';}};
+  audioPlayer.onpause=()=>stopMic();
+  audioPlayer.onended=()=>stopMic();
+  audioPlayer.play();
+}
+
+/* ============ TEXT ============ */
+document.getElementById('textCheck').onclick=()=>{
+  const t=document.getElementById('textInput').value.trim();
+  if(!t){showErr('Type or paste some text first.');return;}
+  splitSentences(t).forEach(s=>{if(s.trim().split(' ').length>=3)enqueue(s.trim());});
+};
+document.getElementById('textStream').onclick=()=>{
+  const t=document.getElementById('textInput').value.trim();
+  if(!t){showErr('Type or paste some text first.');return;}
+  const sents=splitSentences(t).filter(s=>s.trim().split(' ').length>=3);
+  let i=0;
+  const iv=setInterval(()=>{
+    if(i>=sents.length){clearInterval(iv);return;}
+    enqueue(sents[i++].trim());
+  },1400); // simulate words coming in over time
+};
+document.getElementById('textFile').onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=()=>{document.getElementById('textInput').value=r.result;};
+  r.readAsText(f);
+};
+</script>
+<script>
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js').catch(e=>console.log('SW registration skipped:',e));
+  });
+}
+</script>
+</body>
+</html>
