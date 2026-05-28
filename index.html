@@ -695,34 +695,43 @@ function setChyron(finalPart,interimPart){
 function startMic(){
   if(!SR){showErr('Speech recognition not supported in this browser. Try Chrome or Edge.');return;}
   if(micOn){return;} // already listening — avoid spawning a second recognizer (causes 'aborted')
-  if(recog){try{recog.abort();}catch(e){}}
-  recog=new SR();recog.continuous=true;recog.interimResults=true;recog.lang='en-US';
-  let buffer='';
+  micOn=true;
+  buildRecognizer();
   chyron.classList.add('live');chyron.classList.remove('heard');
   setChyron('Listening — start talking…','');
   chyronText.classList.add('idle');
+  startRecognizer();
+  micBtn.disabled=true;micStop.disabled=false;
+  micStatus.classList.add('on');
+  micStatus.innerHTML='<span class="dot"></span>Listening…';
+}
+
+let micBuffer=''; // persists across recognizer restarts so a sentence split by a restart isn't lost
+function buildRecognizer(){
+  if(recog){try{recog.abort();}catch(e){}}
+  recog=new SR();recog.continuous=true;recog.interimResults=true;recog.lang='en-US';
   recog.onresult=(e)=>{
     let finalChunk='', interim='';
     for(let i=e.resultIndex;i<e.results.length;i++){
       if(e.results[i].isFinal) finalChunk+=e.results[i][0].transcript+' ';
       else interim+=e.results[i][0].transcript;
     }
-    // live caption: show recent final words plus the in-progress interim
     if(finalChunk) lastFinalForChyron=(lastFinalForChyron+' '+finalChunk).trim().split(' ').slice(-14).join(' ');
     if(finalChunk||interim){
       chyron.classList.add('heard');
       setChyron(lastFinalForChyron, interim);
     }
-    // live transcript tail mirrors interim words; cleared when a sentence is committed
-    setTranscriptInterim(interim);
+    // only update the live transcript tail when there is actual interim text;
+    // an empty interim during a restart gap must NOT wipe the tail
+    if(interim) setTranscriptInterim(interim);
     if(finalChunk){
-      buffer+=finalChunk;
-      const sents=splitSentences(buffer);
-      if(!/[.!?]\s*$/.test(buffer.trim())){
-        buffer=sents.pop()||'';
-      } else buffer='';
+      micBuffer+=finalChunk;
+      const sents=splitSentences(micBuffer);
+      if(!/[.!?]\s*$/.test(micBuffer.trim())){
+        micBuffer=sents.pop()||'';
+      } else micBuffer='';
       sents.forEach(s=>{if(s.trim().split(' ').length>=3)enqueue(s.trim());});
-      if(!interim) setTranscriptInterim('');
+      setTranscriptInterim(''); // committed sentence(s) now live in the permanent log
     }
   };
   recog.onerror=(e)=>{
@@ -732,33 +741,30 @@ function startMic(){
       setChyron('Microphone permission denied.','');chyronText.classList.add('idle');
       micBtn.disabled=false;micStop.disabled=true;chyron.classList.remove('live');
     } else if(e.error==='aborted'||e.error==='no-speech'){
-      // benign — recognition will be restarted by onend if still listening; don't alarm the user
-      return;
+      return; // benign; onend handles any needed restart
     } else if(e.error==='network'){
       showErr('Speech service unreachable — check your internet connection.');
     } else {
-      showErr('Mic note: '+e.error+' (will keep trying)');
+      showErr('Mic note: '+e.error+' (still listening)');
     }
   };
-  // throttled restart: only when still meant to be listening, and never in a tight loop
+  // Seamless restart: Chrome ends sessions every ~60s. Restart WITHOUT touching
+  // the chyron text or transcript, so the user never sees a reset — only a brief
+  // gap while the engine reconnects. Accumulated words stay on screen.
   recog.onend=()=>{
     if(!micOn) return;
     clearTimeout(restartTimer);
-    restartTimer=setTimeout(()=>{
-      if(!micOn) return;
-      try{ recog.start(); }
-      catch(err){ /* already started — ignore InvalidStateError */ }
-    },350);
+    restartTimer=setTimeout(()=>{ if(micOn) startRecognizer(); },250);
   };
+}
+function startRecognizer(){
   try{ recog.start(); }
-  catch(err){ showErr('Could not start mic: '+err.message); return; }
-  micOn=true;
-  micBtn.disabled=true;micStop.disabled=false;
-  micStatus.classList.add('on');
-  micStatus.innerHTML='<span class="dot"></span>Listening…';
+  catch(err){ /* InvalidStateError if it's mid-stop; retry shortly */
+    if(micOn){clearTimeout(restartTimer);restartTimer=setTimeout(()=>{if(micOn)startRecognizer();},300);}
+  }
 }
 function stopMic(){
-  micOn=false;clearTimeout(restartTimer);
+  micOn=false;clearTimeout(restartTimer);micBuffer='';
   if(recog){try{recog.stop();}catch(e){}}
   micBtn.disabled=false;micStop.disabled=true;
   micStatus.classList.remove('on');micStatus.innerHTML='Microphone idle.';
