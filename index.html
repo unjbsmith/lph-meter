@@ -171,6 +171,59 @@
   .empty{text-align:center;color:var(--muted);padding:30px;font-size:14px;}
   footer{margin-top:24px;text-align:center;font-size:12px;color:var(--muted);line-height:1.6;max-width:560px;}
   .err{color:#ff7b70;font-size:13px;margin-top:8px;font-family:'Share Tech Mono';}
+
+  /* ===== ODOMETER ===== */
+  .odo-wrap{text-align:center;margin:16px 0 4px;}
+  .odo-label{font-size:11px;letter-spacing:.35em;text-transform:uppercase;color:var(--muted);margin-bottom:7px;}
+  .odometer{
+    display:inline-flex;gap:3px;padding:7px 9px;border-radius:8px;
+    background:linear-gradient(180deg,#05060a,#15181f);
+    border:1px solid #2a2f37;
+    box-shadow:inset 0 2px 6px rgba(0,0,0,.8), 0 1px 0 rgba(255,255,255,.05);
+  }
+  .odo-digit{
+    position:relative;width:30px;height:46px;overflow:hidden;border-radius:4px;
+    background:linear-gradient(180deg,#1c1c1e,#0c0c0e);
+    border:1px solid #000;
+    box-shadow:inset 0 0 8px rgba(0,0,0,.9);
+  }
+  .odo-digit::before,.odo-digit::after{
+    content:"";position:absolute;left:0;right:0;height:14px;z-index:2;pointer-events:none;
+  }
+  .odo-digit::before{top:0;background:linear-gradient(180deg,rgba(0,0,0,.85),transparent);}
+  .odo-digit::after{bottom:0;background:linear-gradient(0deg,rgba(0,0,0,.85),transparent);}
+  .odo-strip{
+    position:absolute;left:0;right:0;top:0;
+    display:flex;flex-direction:column;align-items:center;
+    transition:transform .6s cubic-bezier(.22,1,.36,1);
+    font-family:'Share Tech Mono',monospace;font-size:32px;line-height:46px;
+    color:#fff;text-shadow:0 0 8px rgba(255,255,255,.25);
+  }
+  .odo-strip span{height:46px;}
+  .odo-digit.tens-of-truth .odo-strip{color:var(--red);text-shadow:0 0 10px rgba(226,59,46,.6);}
+
+  /* ===== CORRECTIONS LIST ===== */
+  .corrections-panel{padding-top:14px;}
+  .corr-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+  .corr-title{font-size:15px;letter-spacing:.12em;text-transform:uppercase;color:#ff7b70;font-weight:600;}
+  .corr-count{font-family:'Share Tech Mono';font-size:12px;color:var(--muted);}
+  .corr-list{max-height:360px;overflow-y:auto;display:flex;flex-direction:column;gap:10px;}
+  .corr-item{
+    background:rgba(226,59,46,.06);border:1px solid rgba(226,59,46,.25);
+    border-left:4px solid var(--red);border-radius:9px;padding:12px 14px;
+    animation:slidein .35s ease;
+  }
+  .corr-num{
+    font-family:'Share Tech Mono';font-size:11px;color:#ff7b70;
+    letter-spacing:.1em;margin-bottom:6px;display:flex;justify-content:space-between;
+  }
+  .corr-claim{font-size:14px;line-height:1.45;color:var(--text);}
+  .corr-claim .x{color:#ff7b70;font-weight:600;margin-right:6px;}
+  .corr-fix{
+    font-size:13px;line-height:1.5;color:#bfe6cf;margin-top:7px;
+    padding-top:7px;border-top:1px dashed rgba(58,208,122,.25);
+  }
+  .corr-fix .c{color:var(--green);font-weight:600;margin-right:6px;}
 </style>
 </head>
 <body>
@@ -186,6 +239,11 @@
   <div class="readout">
     <div class="lph-num" id="lphNum">0</div>
     <div class="lph-label">Lies Per Hour</div>
+  </div>
+
+  <div class="odo-wrap">
+    <div class="odo-label">Session Total Lies</div>
+    <div class="odometer" id="odometer"></div>
   </div>
 
   <div class="stats">
@@ -238,6 +296,16 @@
   <div class="panel">
     <div class="feed" id="feed">
       <div class="empty" id="emptyMsg">Verdicts will appear here as statements are checked.</div>
+    </div>
+  </div>
+
+  <div class="panel corrections-panel">
+    <div class="corr-head">
+      <span class="corr-title">⚠ Lie Log &amp; Corrections</span>
+      <span class="corr-count" id="corrCount">0 logged</span>
+    </div>
+    <div class="corr-list" id="corrList">
+      <div class="empty" id="corrEmpty">Detected falsehoods and their corrections will scroll here.</div>
     </div>
   </div>
 
@@ -375,7 +443,7 @@ animateNeedle();
 /* ============ LPH BOOKKEEPING ============ */
 const lieTimestamps=[]; // ms timestamps of confirmed lies
 let totalLies=0, totalChecked=0, totalTrue=0;
-function recordLie(){lieTimestamps.push(Date.now());totalLies++;updateStats();}
+function recordLie(){lieTimestamps.push(Date.now());totalLies++;updateStats();updateOdometer(totalLies);}
 function updateStats(){
   document.getElementById('sLies').textContent=totalLies;
   document.getElementById('sChecked').textContent=totalChecked;
@@ -387,6 +455,48 @@ function recomputeLPH(){
   targetLPH = lieTimestamps.length*60;
 }
 setInterval(recomputeLPH,250);
+
+/* ============ ODOMETER ============ */
+const ODO_DIGITS=5;
+const odoEl=document.getElementById('odometer');
+const odoStrips=[];
+function buildOdometer(){
+  for(let i=0;i<ODO_DIGITS;i++){
+    const digit=document.createElement('div');digit.className='odo-digit';
+    const strip=document.createElement('div');strip.className='odo-strip';
+    for(let n=0;n<=9;n++){const s=document.createElement('span');s.textContent=n;strip.appendChild(s);}
+    digit.appendChild(strip);odoEl.appendChild(digit);odoStrips.push({strip,digit});
+  }
+  updateOdometer(0);
+}
+function updateOdometer(value){
+  const padded=String(Math.min(value,99999)).padStart(ODO_DIGITS,'0');
+  for(let i=0;i<ODO_DIGITS;i++){
+    const d=parseInt(padded[i],10);
+    odoStrips[i].strip.style.transform=`translateY(-${d*46}px)`;
+    // tint leading active digits red once we hit double figures
+    odoStrips[i].digit.classList.toggle('tens-of-truth', value>=10 && padded[i]!=='0');
+  }
+}
+buildOdometer();
+
+/* ============ CORRECTIONS LIST ============ */
+const corrList=document.getElementById('corrList');
+const corrEmpty=document.getElementById('corrEmpty');
+const corrCountEl=document.getElementById('corrCount');
+let corrCount=0;
+function addCorrection(claim,correction){
+  if(corrEmpty&&corrEmpty.parentNode) corrEmpty.remove();
+  corrCount++;
+  corrCountEl.textContent=corrCount+(corrCount===1?' logged':' logged');
+  const t=new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const item=document.createElement('div');item.className='corr-item';
+  item.innerHTML=`
+    <div class="corr-num"><span>LIE #${corrCount}</span><span>${t}</span></div>
+    <div class="corr-claim"><span class="x">✗</span>${escapeHtml(claim)}</div>
+    <div class="corr-fix"><span class="c">✓</span>${escapeHtml(correction||'No correction available.')}</div>`;
+  corrList.prepend(item);
+}
 
 /* ============ FEED ============ */
 const feed=document.getElementById('feed');
@@ -415,7 +525,7 @@ function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','
 
 /* ============ CLAUDE FACT-CHECK ============ */
 async function factCheck(statement){
-  const sys = `You are a rapid fact-checker. The user gives you ONE statement. Decide if it is a factual claim that is false, true, or unverifiable/opinion. Respond ONLY with minified JSON, no markdown: {"verdict":"false"|"true"|"unverifiable","note":"<=12 word reason"}. Treat opinions, predictions, jokes, and questions as "unverifiable". Only mark "false" for clear factual errors.`;
+  const sys = `You are a rapid fact-checker. The user gives you ONE statement. Decide if it is a factual claim that is false, true, or unverifiable/opinion. Respond ONLY with minified JSON, no markdown: {"verdict":"false"|"true"|"unverifiable","note":"<=12 word reason","correction":"the accurate fact, <=25 words"}. Treat opinions, predictions, jokes, and questions as "unverifiable". Only mark "false" for clear factual errors. The "correction" field is REQUIRED when verdict is "false" — state what is actually true; leave it "" otherwise.`;
   try{
     const res=await fetch("https://api.anthropic.com/v1/messages",{
       method:"POST",headers:{"Content-Type":"application/json"},
@@ -431,10 +541,10 @@ async function factCheck(statement){
     txt=txt.replace(/```json|```/g,"").trim();
     const m=txt.match(/\{[\s\S]*\}/);
     const obj=JSON.parse(m?m[0]:txt);
-    return {verdict:(obj.verdict||'unverifiable').toLowerCase(),note:obj.note||''};
+    return {verdict:(obj.verdict||'unverifiable').toLowerCase(),note:obj.note||'',correction:obj.correction||''};
   }catch(e){
     console.error(e);
-    return {verdict:'unverifiable',note:'check failed'};
+    return {verdict:'unverifiable',note:'check failed',correction:''};
   }
 }
 
@@ -450,7 +560,7 @@ function drain(){
     const {statement,el}=queue.shift();active++;
     factCheck(statement).then(r=>{
       totalChecked++;
-      if(r.verdict==='false'){recordLie();}
+      if(r.verdict==='false'){recordLie();addCorrection(statement,r.correction);}
       else if(r.verdict==='true'){totalTrue++;updateStats();}
       else updateStats();
       verdictClaim(el,r.verdict,r.note);
