@@ -1,4 +1,4 @@
-const CACHE = 'lph-meter-v2';
+const CACHE = 'lph-meter-v3';
 const ASSETS = [
   './index.html',
   './manifest.webmanifest',

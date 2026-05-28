@@ -224,6 +224,27 @@
     padding-top:7px;border-top:1px dashed rgba(58,208,122,.25);
   }
   .corr-fix .c{color:var(--green);font-weight:600;margin-right:6px;}
+
+  /* ===== CHYRON (live caption bar) ===== */
+  .chyron{
+    display:flex;align-items:center;gap:12px;
+    margin:14px 0 4px;padding:12px 16px;border-radius:10px;
+    background:linear-gradient(180deg,#0c0e13,#15181f);
+    border:1px solid #2a2f37;min-height:52px;overflow:hidden;
+  }
+  .chyron-dot{
+    flex:none;width:11px;height:11px;border-radius:50%;
+    background:#3a414c;transition:background .2s;
+  }
+  .chyron.live .chyron-dot{background:var(--red);animation:pulse 1s infinite;}
+  .chyron.heard .chyron-dot{background:var(--green);}
+  .chyron-text{
+    font-family:'Share Tech Mono',monospace;font-size:15px;line-height:1.4;
+    color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    direction:rtl;text-align:left;
+  }
+  .chyron-text .interim{color:var(--amber);}
+  .chyron-text.idle{color:var(--muted);}
 </style>
 </head>
 <body>
@@ -244,6 +265,11 @@
   <div class="odo-wrap">
     <div class="odo-label">Session Total Lies</div>
     <div class="odometer" id="odometer"></div>
+  </div>
+
+  <div class="chyron" id="chyron">
+    <span class="chyron-dot" id="chyronDot"></span>
+    <span class="chyron-text" id="chyronText">Mic off — press Start Listening to see live captions here.</span>
   </div>
 
   <div class="stats">
@@ -590,33 +616,63 @@ const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 let recog=null, micOn=false;
 const micBtn=document.getElementById('micBtn'),micStop=document.getElementById('micStop');
 const micStatus=document.getElementById('micStatus');
+const chyron=document.getElementById('chyron');
+const chyronText=document.getElementById('chyronText');
+let lastFinalForChyron='';
+function setChyron(finalPart,interimPart){
+  chyronText.classList.remove('idle');
+  const f=escapeHtml(finalPart||'');
+  const i=interimPart?`<span class="interim"> ${escapeHtml(interimPart)}</span>`:'';
+  chyronText.innerHTML=(f+i).trim()||'…';
+}
 function startMic(){
   if(!SR){showErr('Speech recognition not supported in this browser. Try Chrome or Edge.');return;}
   recog=new SR();recog.continuous=true;recog.interimResults=true;recog.lang='en-US';
   let buffer='';
+  chyron.classList.add('live');chyron.classList.remove('heard');
+  setChyron('Listening — start talking…','');
+  chyronText.classList.add('idle');
   recog.onresult=(e)=>{
-    let finalChunk='';
+    let finalChunk='', interim='';
     for(let i=e.resultIndex;i<e.results.length;i++){
       if(e.results[i].isFinal) finalChunk+=e.results[i][0].transcript+' ';
+      else interim+=e.results[i][0].transcript;
+    }
+    // live caption: show recent final words plus the in-progress interim
+    if(finalChunk) lastFinalForChyron=(lastFinalForChyron+' '+finalChunk).trim().split(' ').slice(-14).join(' ');
+    if(finalChunk||interim){
+      chyron.classList.add('heard');
+      setChyron(lastFinalForChyron, interim);
     }
     if(finalChunk){
       buffer+=finalChunk;
       const sents=splitSentences(buffer);
-      // keep last (possibly incomplete) chunk in buffer if no terminal punctuation
       if(!/[.!?]\s*$/.test(buffer.trim())){
         buffer=sents.pop()||'';
       } else buffer='';
       sents.forEach(s=>{if(s.trim().split(' ').length>=3)enqueue(s.trim());});
     }
   };
-  recog.onerror=(e)=>{if(e.error!=='no-speech')showErr('Mic error: '+e.error);};
+  recog.onerror=(e)=>{
+    if(e.error==='not-allowed'||e.error==='service-not-allowed'){
+      showErr('Microphone blocked. Click the 🔒/camera icon in the address bar and allow the mic, then try again.');
+      setChyron('Microphone permission denied.','');chyronText.classList.add('idle');
+    } else if(e.error!=='no-speech'){showErr('Mic error: '+e.error);}
+  };
   recog.onend=()=>{if(micOn)recog.start();};
   recog.start();micOn=true;
   micBtn.disabled=true;micStop.disabled=false;
   micStatus.classList.add('on');
   micStatus.innerHTML='<span class="dot"></span>Listening…';
 }
-function stopMic(){micOn=false;if(recog)recog.stop();micBtn.disabled=false;micStop.disabled=true;micStatus.classList.remove('on');micStatus.innerHTML='Microphone idle.';}
+function stopMic(){
+  micOn=false;if(recog)recog.stop();
+  micBtn.disabled=false;micStop.disabled=true;
+  micStatus.classList.remove('on');micStatus.innerHTML='Microphone idle.';
+  chyron.classList.remove('live','heard');
+  setChyron('Mic off — press Start Listening to see live captions here.','');
+  chyronText.classList.add('idle');lastFinalForChyron='';
+}
 micBtn.onclick=startMic;micStop.onclick=stopMic;
 
 /* ============ AUDIO FILE ============ */
@@ -631,7 +687,7 @@ function loadAudio(file){
   audioPlayer.src=URL.createObjectURL(file);
   audioPlayer.style.display='block';
   if(!SR){showErr('Live transcription needs Chrome/Edge. Audio will still play.');audioPlayer.play();return;}
-  audioPlayer.onplay=()=>{if(!micOn){startMic();micStatus.innerHTML='<span class="dot"></span>Transcribing playback — keep volume up.';}};
+  audioPlayer.onplay=()=>{if(!micOn){startMic();micStatus.innerHTML='<span class="dot"></span>Transcribing playback — keep volume up.';setChyron('Transcribing audio — keep volume up…','');chyronText.classList.add('idle');}};
   audioPlayer.onpause=()=>stopMic();
   audioPlayer.onended=()=>stopMic();
   audioPlayer.play();
