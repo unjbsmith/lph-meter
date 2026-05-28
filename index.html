@@ -245,6 +245,25 @@
   }
   .chyron-text .interim{color:var(--amber);}
   .chyron-text.idle{color:var(--muted);}
+
+  /* ===== FULL TRANSCRIPT ===== */
+  .transcript-panel{padding-top:14px;}
+  .transcript-body{
+    max-height:300px;overflow-y:auto;
+    font-family:'Share Tech Mono',monospace;font-size:15px;line-height:1.7;
+    color:var(--text);word-spacing:.02em;
+  }
+  .tr-seg{transition:color .3s, background .3s;border-radius:3px;padding:1px 2px;}
+  .tr-seg.pending{color:var(--muted);}
+  .tr-seg.true{color:#9fd8b4;}
+  .tr-seg.unverifiable{color:var(--text);}
+  .tr-seg.false{
+    color:#ff7b70;font-weight:600;
+    background:rgba(226,59,46,.14);
+    text-decoration:underline wavy rgba(226,59,46,.6);
+    text-underline-offset:3px;
+  }
+  .tr-interim{color:var(--amber);opacity:.85;}
 </style>
 </head>
 <body>
@@ -270,6 +289,16 @@
   <div class="chyron" id="chyron">
     <span class="chyron-dot" id="chyronDot"></span>
     <span class="chyron-text" id="chyronText">Mic off — press Start Listening to see live captions here.</span>
+  </div>
+
+  <div class="panel transcript-panel">
+    <div class="corr-head">
+      <span class="corr-title" style="color:var(--chrome-mid);">📝 Live Transcript</span>
+      <span class="corr-count" id="trCount">0 statements</span>
+    </div>
+    <div class="transcript-body" id="transcriptBody">
+      <span class="empty" id="trEmpty">Spoken, transcribed, or typed words appear here. False statements turn <span style="color:#ff7b70;">red</span> once checked.</span>
+    </div>
   </div>
 
   <div class="stats">
@@ -576,20 +605,58 @@ async function factCheck(statement){
 
 // queue so we don't fire dozens of calls at once
 const queue=[]; let active=0; const MAX_CONCURRENT=3;
+
+/* ============ FULL TRANSCRIPT ============ */
+const transcriptBody=document.getElementById('transcriptBody');
+const trEmpty=document.getElementById('trEmpty');
+const trCount=document.getElementById('trCount');
+let trSegCount=0;
+let trInterimEl=null; // floating element for in-progress mic words
+function addTranscriptSegment(text){
+  if(trEmpty&&trEmpty.parentNode) trEmpty.remove();
+  const seg=document.createElement('span');
+  seg.className='tr-seg pending';
+  seg.textContent=text+' ';
+  // insert before the interim element if present, so live words stay at the end
+  if(trInterimEl&&trInterimEl.parentNode) transcriptBody.insertBefore(seg,trInterimEl);
+  else transcriptBody.appendChild(seg);
+  trSegCount++;
+  trCount.textContent=trSegCount+(trSegCount===1?' statement':' statements');
+  transcriptBody.scrollTop=transcriptBody.scrollHeight;
+  return seg;
+}
+function colorTranscriptSegment(seg,verdict){
+  if(!seg) return;
+  seg.className='tr-seg '+(verdict||'unverifiable');
+}
+function setTranscriptInterim(text){
+  if(!text){ if(trInterimEl){trInterimEl.remove();trInterimEl=null;} return; }
+  if(trEmpty&&trEmpty.parentNode) trEmpty.remove();
+  if(!trInterimEl){
+    trInterimEl=document.createElement('span');
+    trInterimEl.className='tr-interim';
+    transcriptBody.appendChild(trInterimEl);
+  }
+  trInterimEl.textContent=text+' ';
+  transcriptBody.scrollTop=transcriptBody.scrollHeight;
+}
+
 function enqueue(statement){
   const el=addClaim(statement);
-  queue.push({statement,el});
+  const seg=addTranscriptSegment(statement);
+  queue.push({statement,el,seg});
   drain();
 }
 function drain(){
   while(active<MAX_CONCURRENT && queue.length){
-    const {statement,el}=queue.shift();active++;
+    const {statement,el,seg}=queue.shift();active++;
     factCheck(statement).then(r=>{
       totalChecked++;
       if(r.verdict==='false'){recordLie();addCorrection(statement,r.correction);}
       else if(r.verdict==='true'){totalTrue++;updateStats();}
       else updateStats();
       verdictClaim(el,r.verdict,r.note);
+      colorTranscriptSegment(seg,r.verdict);
     }).finally(()=>{active--;drain();});
   }
 }
@@ -613,7 +680,7 @@ function showErr(m){errBox.textContent=m;setTimeout(()=>errBox.textContent='',50
 
 /* ============ LIVE MIC ============ */
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-let recog=null, micOn=false;
+let recog=null, micOn=false, restartTimer=null;
 const micBtn=document.getElementById('micBtn'),micStop=document.getElementById('micStop');
 const micStatus=document.getElementById('micStatus');
 const chyron=document.getElementById('chyron');
@@ -627,6 +694,8 @@ function setChyron(finalPart,interimPart){
 }
 function startMic(){
   if(!SR){showErr('Speech recognition not supported in this browser. Try Chrome or Edge.');return;}
+  if(micOn){return;} // already listening — avoid spawning a second recognizer (causes 'aborted')
+  if(recog){try{recog.abort();}catch(e){}}
   recog=new SR();recog.continuous=true;recog.interimResults=true;recog.lang='en-US';
   let buffer='';
   chyron.classList.add('live');chyron.classList.remove('heard');
@@ -644,6 +713,8 @@ function startMic(){
       chyron.classList.add('heard');
       setChyron(lastFinalForChyron, interim);
     }
+    // live transcript tail mirrors interim words; cleared when a sentence is committed
+    setTranscriptInterim(interim);
     if(finalChunk){
       buffer+=finalChunk;
       const sents=splitSentences(buffer);
@@ -651,27 +722,50 @@ function startMic(){
         buffer=sents.pop()||'';
       } else buffer='';
       sents.forEach(s=>{if(s.trim().split(' ').length>=3)enqueue(s.trim());});
+      if(!interim) setTranscriptInterim('');
     }
   };
   recog.onerror=(e)=>{
     if(e.error==='not-allowed'||e.error==='service-not-allowed'){
-      showErr('Microphone blocked. Click the 🔒/camera icon in the address bar and allow the mic, then try again.');
+      micOn=false;
+      showErr('Microphone blocked. Click the 🔒/tune icon at the left of the address bar, set Microphone to Allow, then reload and try again.');
       setChyron('Microphone permission denied.','');chyronText.classList.add('idle');
-    } else if(e.error!=='no-speech'){showErr('Mic error: '+e.error);}
+      micBtn.disabled=false;micStop.disabled=true;chyron.classList.remove('live');
+    } else if(e.error==='aborted'||e.error==='no-speech'){
+      // benign — recognition will be restarted by onend if still listening; don't alarm the user
+      return;
+    } else if(e.error==='network'){
+      showErr('Speech service unreachable — check your internet connection.');
+    } else {
+      showErr('Mic note: '+e.error+' (will keep trying)');
+    }
   };
-  recog.onend=()=>{if(micOn)recog.start();};
-  recog.start();micOn=true;
+  // throttled restart: only when still meant to be listening, and never in a tight loop
+  recog.onend=()=>{
+    if(!micOn) return;
+    clearTimeout(restartTimer);
+    restartTimer=setTimeout(()=>{
+      if(!micOn) return;
+      try{ recog.start(); }
+      catch(err){ /* already started — ignore InvalidStateError */ }
+    },350);
+  };
+  try{ recog.start(); }
+  catch(err){ showErr('Could not start mic: '+err.message); return; }
+  micOn=true;
   micBtn.disabled=true;micStop.disabled=false;
   micStatus.classList.add('on');
   micStatus.innerHTML='<span class="dot"></span>Listening…';
 }
 function stopMic(){
-  micOn=false;if(recog)recog.stop();
+  micOn=false;clearTimeout(restartTimer);
+  if(recog){try{recog.stop();}catch(e){}}
   micBtn.disabled=false;micStop.disabled=true;
   micStatus.classList.remove('on');micStatus.innerHTML='Microphone idle.';
   chyron.classList.remove('live','heard');
   setChyron('Mic off — press Start Listening to see live captions here.','');
   chyronText.classList.add('idle');lastFinalForChyron='';
+  setTranscriptInterim('');
 }
 micBtn.onclick=startMic;micStop.onclick=stopMic;
 
