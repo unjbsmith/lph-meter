@@ -246,6 +246,21 @@
   .chyron-text .interim{color:var(--amber);}
   .chyron-text.idle{color:var(--muted);}
 
+  /* ===== VU METER (mic level) ===== */
+  .vu{
+    flex:none;width:64px;height:8px;border-radius:4px;
+    background:#0a0c10;border:1px solid #2a2f37;overflow:hidden;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.8);
+    position:relative;
+  }
+  .vu-fill{
+    display:block;height:100%;width:0%;
+    background:linear-gradient(90deg,#3ad07a 0%,#3ad07a 55%,#f0a830 75%,#e23b2e 100%);
+    transition:width .04s linear;
+    box-shadow:0 0 6px rgba(255,255,255,.15);
+  }
+  .vu.clip .vu-fill{box-shadow:0 0 10px rgba(226,59,46,.7);}
+
   /* ===== FULL TRANSCRIPT ===== */
   .transcript-panel{padding-top:14px;}
   .transcript-body{
@@ -288,6 +303,7 @@
 
   <div class="chyron" id="chyron">
     <span class="chyron-dot" id="chyronDot"></span>
+    <span class="vu" id="vu" aria-label="Mic level"><span class="vu-fill" id="vuFill"></span></span>
     <span class="chyron-text" id="chyronText">Mic off — press Start Listening to see live captions here.</span>
   </div>
 
@@ -701,9 +717,49 @@ function startMic(){
   setChyron('Listening — start talking…','');
   chyronText.classList.add('idle');
   startRecognizer();
+  startVU(); // raw audio level meter, runs alongside recognition
   micBtn.disabled=true;micStop.disabled=false;
   micStatus.classList.add('on');
   micStatus.innerHTML='<span class="dot"></span>Listening…';
+}
+
+/* ===== VU METER ===== */
+let vuStream=null, vuCtx=null, vuRAF=null;
+const vuEl=document.getElementById('vu');
+const vuFill=document.getElementById('vuFill');
+async function startVU(){
+  if(vuCtx) return; // already running
+  try{
+    vuStream=await navigator.mediaDevices.getUserMedia({audio:true});
+    vuCtx=new (window.AudioContext||window.webkitAudioContext)();
+    const src=vuCtx.createMediaStreamSource(vuStream);
+    const analyser=vuCtx.createAnalyser();
+    analyser.fftSize=512;analyser.smoothingTimeConstant=0.6;
+    src.connect(analyser);
+    const data=new Uint8Array(analyser.frequencyBinCount);
+    let smoothed=0;
+    (function loop(){
+      if(!vuCtx){return;}
+      analyser.getByteTimeDomainData(data);
+      let max=0;
+      for(let i=0;i<data.length;i++){const v=Math.abs(data[i]-128);if(v>max)max=v;}
+      // map to 0-100, with mild gain so normal speech sits mid-meter
+      const target=Math.min(100,(max/128)*100*2.4);
+      smoothed += (target-smoothed)*0.35;
+      vuFill.style.width=smoothed.toFixed(1)+'%';
+      vuEl.classList.toggle('clip', smoothed>92);
+      vuRAF=requestAnimationFrame(loop);
+    })();
+  }catch(err){
+    // mic for VU may be blocked even when speech rec is allowed (rare); fail silent
+    console.warn('VU meter unavailable:',err.message);
+  }
+}
+function stopVU(){
+  if(vuRAF){cancelAnimationFrame(vuRAF);vuRAF=null;}
+  if(vuStream){vuStream.getTracks().forEach(t=>t.stop());vuStream=null;}
+  if(vuCtx){try{vuCtx.close();}catch(e){}vuCtx=null;}
+  vuFill.style.width='0%';vuEl.classList.remove('clip');
 }
 
 let micBuffer=''; // persists across recognizer restarts so a sentence split by a restart isn't lost
@@ -766,6 +822,7 @@ function startRecognizer(){
 function stopMic(){
   micOn=false;clearTimeout(restartTimer);micBuffer='';
   if(recog){try{recog.stop();}catch(e){}}
+  stopVU();
   micBtn.disabled=false;micStop.disabled=true;
   micStatus.classList.remove('on');micStatus.innerHTML='Microphone idle.';
   chyron.classList.remove('live','heard');
